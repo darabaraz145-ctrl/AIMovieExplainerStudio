@@ -177,7 +177,7 @@ def main():
 
     gemini_key = os.environ.get("GEMINI_API_KEY")
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    channel_id = os.environ.get("TELEGRAM_CHANNEL_ID", "-1004294803559")
+    channel_id = os.environ.get("TELEGRAM_CHANNEL_ID") or "-1004294803559"
 
     # Step 1: Ingestion (Download / Unpack)
     movie_file = "input_movie.mp4"
