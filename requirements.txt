@@ -1,0 +1,4 @@
+openai-whisper
+edge-tts
+google-genai
+requests
