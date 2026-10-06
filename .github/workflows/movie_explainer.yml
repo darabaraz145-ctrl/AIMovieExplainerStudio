@@ -1,0 +1,51 @@
+name: Apalod Cinemax Studio - Cloud Rendering Pipeline
+
+on:
+  repository_dispatch:
+    types: [movie_explainer_render, movie_explainer_job]
+  workflow_dispatch:
+    inputs:
+      movie_title:
+        description: 'Movie Title'
+        required: true
+        default: 'Inception'
+      source_url:
+        description: 'Telegram MP4 Video Link or Direct Movie URL'
+        required: true
+        default: 'https://t.me/cinestrean100/12'
+      voice_name:
+        description: 'Neural Voice Model'
+        required: false
+        default: 'si-LK-SameeraNeural'
+
+jobs:
+  render_cinemax_recap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Video Processing & Neural AI Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg aria2
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Apalod Cinemax Explainer Engine
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || github.event.client_payload.geminiApiKey }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || github.event.client_payload.telegramBotToken }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID || github.event.client_payload.telegramChannel || '-1004294803559' }}
+          VOICE_NAME: ${{ github.event.client_payload.voice || github.event.inputs.voice_name || 'si-LK-SameeraNeural' }}
+        run: |
+          python pipeline.py \
+            --title "${{ github.event.client_payload.movieTitle || github.event.inputs.movie_title || 'Movie Recap' }}" \
+            --source "${{ github.event.client_payload.sourceUrl || github.event.inputs.source_url }}" \
+            --voice "$VOICE_NAME"
