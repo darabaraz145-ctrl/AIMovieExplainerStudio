@@ -22,6 +22,7 @@ jobs:
   render_cinemax_recap:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -43,11 +44,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || github.event.client_payload.telegramBotToken }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID || github.event.client_payload.telegramChannel || '-1004294803559' }}
           VOICE_NAME: ${{ github.event.client_payload.voice || github.event.inputs.voice_name || 'si-LK-SameeraNeural' }}
+          CUSTOM_SCRIPT: ${{ github.event.client_payload.customScript }}
         run: |
-          python pipeline.py \
-            --title "${{ github.event.client_payload.movieTitle || github.event.inputs.movie_title || 'Runner (2026)' }}" \
-            --source "${{ github.event.client_payload.sourceUrl || github.event.inputs.source_url }}" \
-            --voice "$VOICE_NAME"
+          python pipeline.py             --title "${{ github.event.client_payload.movieTitle || github.event.inputs.movie_title || 'Runner (2026)' }}"             --source "${{ github.event.client_payload.sourceUrl || github.event.inputs.source_url }}"             --voice ""
 
       - name: Archive Generated Video Clips as Artifacts
         if: always()
