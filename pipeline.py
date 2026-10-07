@@ -52,9 +52,13 @@ def download_and_extract_media(source_url, output_target="input_movie.mp4"):
 
     # Multi-connection aria2c or urllib stream
     try:
-        subprocess.run(["aria2c", "-s", "4", "-x", "4", "-o", temp_download, source_url], check=True)
-    except Exception:
-        print("⚠️ aria2c unavailable, falling back to HTTP stream...")
+        subprocess.run([
+            "aria2c", "-s", "4", "-x", "4",
+            "--connect-timeout=20", "--timeout=30", "--max-tries=3",
+            "-o", temp_download, source_url
+        ], check=True)
+    except Exception as e:
+        print(f"⚠️ aria2c download failed ({e}), falling back to HTTP stream...")
         if requests:
             with requests.get(source_url, stream=True, timeout=120) as r:
                 r.raise_for_status()
@@ -215,6 +219,8 @@ def main():
     parser.add_argument("--scenes", type=int, default=3, help="Number of scene video parts to produce (default 3)")
     parser.add_argument("--custom-script", default="", help="Custom timestamped script text in [HH:MM:SS - HH:MM:SS] format")
     args = parser.parse_args()
+    if not args.voice or not args.voice.strip():
+        args.voice = os.environ.get("VOICE_NAME", "si-LK-SameeraNeural").strip() or "si-LK-SameeraNeural"
 
     custom_script_env = os.environ.get("CUSTOM_SCRIPT", "").strip()
     raw_script_input = (args.custom_script or custom_script_env).strip()
