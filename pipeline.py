@@ -111,20 +111,20 @@ def download_and_extract_media(source_url, output_target="input_movie.mp4"):
     return output_target
 
 def generate_part_script(movie_title, part_num, total_parts, gemini_key):
-    """Generates an Inside Cinemax style Sinhala script for a specific part."""
+    """Generates an engaging Hollywood Movie Recap narration in cinematic English."""
     prompts = {
-        1: f"මේ අතරතුර {movie_title} කතාවේ ආරම්භයේදීම අපට දකින්න ලැබෙන්නේ කිසිවෙකුත් බලාපොරොත්තු නොවූ අද්භූත සිදුවීමකට ප්‍රධාන චරිතය මුහුණ දෙන ආකාරයයි. අවට පරිසරය අතිශයින් නිහඬ වෙද්දී ඔහුට දැනෙන්නේ තම ජීවිතය බරපතල අනතුරක ඇති බවයි.",
-        2: f"කතාවේ දෙවන කොටසේදී {movie_title} හි අභිරහස තවත් තීව්‍ර වෙනවා. තමන් ඉදිරියේ සිදුවන දේ පිළිබඳව හෝඩුවාවන් සොයා යන ඔහුට හමුවන්නේ කිසිවෙකුත් නොසිතූ අන්දමේ භයානක රහසක්.",
-        3: f"දැන් කතාවේ තීරණාත්මක මැද කොටසටයි අපි පැමිණෙන්නේ. ප්‍රධාන චරිත දෙක අතර ඇතිවන නොසන්සුන්තාවය සහ සැකය උච්චතම අවස්ථාවකට ළඟා වෙනවා. මේ මොහොතේ සිදුවන හැරවුම් ලක්ෂ්‍යය මුළු කතාවම වෙනස් කරනවා.",
-        4: f"මේ අවස්ථාවේදී අනතුර තවදුරටත් මඟහැරිය නොහැකි තත්ත්වයකට පත්වෙනවා. තම ජීවිතය බේරාගැනීමට ඔහු ගන්නා අවසන් උත්සාහය ප්‍රේක්ෂක අපව දැඩි කුතුහලයකට සහ ත්‍රාසයකට පත් කරනවා.",
-        5: f"අවසාන වශයෙන් {movie_title} කතාවේ මේ සුවිශේෂී කොටසින් අපට පෙනී යන්නේ මේ සියලු සිදුවීම් පිටුපස සැඟවී තිබූ සැබෑ කුමන්ත්‍රණයයි. කිසිවෙකුත් බලාපොරොත්තු නොවූ අන්දමේ අවසානයක් සමඟින් මේ කොටස නිමාවට පත්වෙනවා."
+        1: f"The movie '{movie_title}' begins by introducing our protagonist in the midst of an unexpected crisis. The atmosphere is tense, and every clue points to a dangerous conspiracy that cannot be ignored.",
+        2: f"As the story progresses into chapter two, the stakes escalate dramatically. Facing relentless pursuit, unexpected secrets begin to unravel, forcing critical choices.",
+        3: f"At the turning point of '{movie_title}', the tension reaches its boiling point. Suspicion grows between the characters as a shocking revelation alters the course of the entire mission.",
+        4: f"With time rapidly running out, danger closes in from all sides. A desperate gambit is made, pushing the protagonist to the ultimate edge of survival.",
+        5: f"In the gripping climax of '{movie_title}', the final pieces of the puzzle fall into place, culminating in a jaw-dropping finale that leaves audiences breathless."
     }
 
-    # If Gemini API Key is present, query Gemini for dynamic Sinhala text
+    # If Gemini API Key is present, query Gemini for dynamic English movie recap
     if gemini_key:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-            p_text = f"Write an engaging 40-word movie review explanation in Sinhala (Inside Cinemax YouTube style) for Part {part_num} of 5 of the movie '{movie_title}'. Return only the Sinhala text without quotation marks or bullet points."
+            p_text = f"You are the voice of a popular YouTube Movie Recap channel (like Movie Recaps or Mystery Recaps). Write a thrilling 45-word chronological recap for Part {part_num} of {total_parts} of the movie '{movie_title}'. Focus on the character tension, plot development, and mysterious stakes. Return ONLY the English narration text without quotation marks or bullet points."
             body = json.dumps({"contents": [{"parts": [{"text": p_text}]}]}).encode()
             req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -164,7 +164,7 @@ def main():
     parser = argparse.ArgumentParser(description="Apalod Cinemax Scene Splitter & Video Pipeline")
     parser.add_argument("--title", required=True, help="Movie Title")
     parser.add_argument("--source", required=False, default="", help="Seedr Zip or Direct URL")
-    parser.add_argument("--voice", default="si-LK-SameeraNeural", help="Voice Model (si-LK-SameeraNeural)")
+    parser.add_argument("--voice", default="en-US-ChristopherNeural", help="Voice Model (en-US-ChristopherNeural, en-US-GuyNeural)")
     parser.add_argument("--scenes", type=int, default=3, help="Number of scene video parts to produce (default 3)")
     args = parser.parse_args()
 
