@@ -461,9 +461,9 @@ def main():
         try:
             subprocess.run([
                 "ffmpeg", "-f", "concat", "-safe", "0",
-                "-i", concat_file,
+                "-i", "concat_list.txt",
                 "-c", "copy",
-                "-y", full_recap_video
+                "-y", os.path.basename(full_recap_video)
             ], cwd="output_scenes", check=True)
 
             if os.path.exists(full_recap_video):
