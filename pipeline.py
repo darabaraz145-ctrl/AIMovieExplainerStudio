@@ -188,6 +188,119 @@ def generate_part_script(movie_title, part_num, total_parts, gemini_key):
 
     return prompts.get(part_num, prompts[1])
 
+def synthesize_neural_voice(text, voice_name, output_mp3):
+    """Synthesizes high-fidelity Sinhala Neural TTS using Edge-TTS (native async or CLI fallback)."""
+    clean_text = re.sub(r'\[\d{1,2}:\d{2}:\d{2}\s*-\s*\d{1,2}:\d{2}:\d{2}\]', '', text)
+    clean_text = clean_text.replace('*', '').replace('#', '').strip()
+    if not clean_text:
+        return 0.0
+
+    if os.path.exists(output_mp3):
+        try: os.remove(output_mp3)
+        except Exception: pass
+
+    # 1. Native Python edge_tts module
+    try:
+        import asyncio
+        import edge_tts
+        async def _run():
+            comm = edge_tts.Communicate(clean_text, voice_name)
+            await comm.save(output_mp3)
+        asyncio.run(_run())
+        if os.path.exists(output_mp3) and os.path.getsize(output_mp3) > 500:
+            dur = get_media_duration(output_mp3)
+            print(f"🎙️ [Edge-TTS Async] Sinhala Voice Synthesized: {dur:.2f}s ({os.path.getsize(output_mp3)} bytes)")
+            return dur
+    except Exception as e:
+        print(f"⚠️ edge_tts async failed ({e}), trying CLI...")
+
+    # 2. Python -m edge_tts
+    try:
+        subprocess.run([
+            sys.executable, "-m", "edge_tts",
+            "--voice", voice_name,
+            "--text", clean_text,
+            "--write-media", output_mp3
+        ], check=True)
+        if os.path.exists(output_mp3) and os.path.getsize(output_mp3) > 500:
+            dur = get_media_duration(output_mp3)
+            print(f"🎙️ [Edge-TTS Module] Sinhala Voice Synthesized: {dur:.2f}s")
+            return dur
+    except Exception as e:
+        print(f"⚠️ Python -m edge_tts failed ({e}), trying edge-tts CLI...")
+
+    # 3. Standalone edge-tts executable
+    try:
+        subprocess.run([
+            "edge-tts",
+            "--voice", voice_name,
+            "--text", clean_text,
+            "--write-media", output_mp3
+        ], check=True)
+        if os.path.exists(output_mp3) and os.path.getsize(output_mp3) > 500:
+            dur = get_media_duration(output_mp3)
+            print(f"🎙️ [Edge-TTS CLI] Sinhala Voice Synthesized: {dur:.2f}s")
+            return dur
+    except Exception as e:
+        print(f"❌ All Edge-TTS methods failed: {e}")
+
+    # Fallback: create silent audio so pipeline doesn't fail
+    print("⚠️ Creating fallback audio track...")
+    subprocess.run([
+        "ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-t", "15", "-c:a", "aac", "-y", output_mp3
+    ], check=True)
+    return 15.0
+
+def produce_recap_scene(movie_file, start_sec, script_text, voice_name, part_num, output_video, temp_prefix="part"):
+    """
+    Produces a professional Movie Recap scene:
+    1. Synthesizes Sinhala voiceover first to know exact duration.
+    2. Cuts video scene from start_sec for EXACT voice duration with NO MOVIE AUDIO (-an).
+    3. Merges Video and Sinhala Voice explicitly (-map 0:v:0 -map 1:a:0).
+    Output: 100% Sinhala voiceover playing over movie frames, zero movie dialogue!
+    """
+    raw_video_clip = f"output_scenes/{temp_prefix}_raw_{part_num}.mp4"
+    voice_file = f"output_scenes/{temp_prefix}_voice_{part_num}.mp3"
+
+    print(f"\n🎙️ [Audio Engine] Generating Sinhala Voiceover for Part {part_num} ({voice_name})...")
+    voice_dur = synthesize_neural_voice(script_text, voice_name, voice_file)
+    if voice_dur <= 0:
+        voice_dur = 20.0
+
+    target_clip_dur = max(3.0, round(voice_dur, 2))
+    print(f"✂️ [Video Engine] Trimming Video Clip at {start_sec}s for EXACT {target_clip_dur}s (Video only, NO movie audio)...")
+
+    # Cut video with -an to DISCARD ORIGINAL MOVIE AUDIO COMPLETELY
+    subprocess.run([
+        "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
+        "-t", str(target_clip_dur),
+        "-an",  # <--- Removes movie dialogue and audio!
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-avoid_negative_ts", "make_zero",
+        "-y", raw_video_clip
+    ], check=True)
+
+    # Merge Video with Sinhala Voice (explicit mapping 0:v:0 and 1:a:0)
+    print(f"🎬 [Merge Engine] Combining Movie Frame Video with Sinhala Neural Audio into '{output_video}'...")
+    subprocess.run([
+        "ffmpeg",
+        "-i", raw_video_clip,
+        "-i", voice_file,
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        "-y", output_video
+    ], check=True)
+
+    if os.path.exists(output_video):
+        final_dur = get_media_duration(output_video)
+        print(f"✅ Part {part_num} Produced: {final_dur:.2f}s | Audio: Sinhala Voiceover ONLY | Video: Matched")
+        return output_video
+    return None
+
 def send_telegram_video(bot_token, channel_id, video_path, caption):
     """Uploads streamable MP4 video to Telegram channel using multipart form."""
     print(f"📤 Uploading '{video_path}' to Telegram ({channel_id})...")
@@ -271,71 +384,31 @@ def main():
             print(f"\n" + "-" * 50)
             print(f"🎬 Processing Chapter {i}/{num_parts} [{chapter['start_str']} - {chapter['end_str']}]...")
             start_sec = chapter['start_sec']
-            clip_dur = chapter['duration']
             part_script = chapter['narration']
-
-            raw_clip = f"output_scenes/raw_part_{i}.mp4"
-            voice_file = f"output_scenes/voice_part_{i}.mp3"
             final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
 
-            # 1. Cut Video Clip from exact timestamps
-            print(f"✂️ Cutting video at {start_sec}s for {clip_dur}s...")
-            subprocess.run([
-                "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
-                "-t", str(clip_dur),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-avoid_negative_ts", "make_zero",
-                "-y", raw_clip
-            ], check=True)
+            produced = produce_recap_scene(
+                movie_file=movie_file,
+                start_sec=start_sec,
+                script_text=part_script,
+                voice_name=args.voice,
+                part_num=i,
+                output_video=final_video_part,
+                temp_prefix="chap"
+            )
 
-            # 2. Synthesize Neural Sinhala Voiceover
-            print(f"🎙️ Synthesizing Sinhala Voice ({args.voice})...")
-            try:
-                subprocess.run([
-                    "edge-tts", "--voice", args.voice,
-                    "--text", part_script,
-                    "--write-media", voice_file
-                ], check=True)
-                voice_dur = get_media_duration(voice_file)
-                print(f"⏱️ Voice Duration: {voice_dur:.2f}s | Video Duration: {clip_dur}s")
-            except Exception as e:
-                print(f"⚠️ Voice synth error: {e}")
-                voice_dur = float(clip_dur)
-
-            # 3. Synchronize & Merge Audio with Video Clip
-            clip_actual_dur = get_media_duration(raw_clip)
-            if clip_actual_dur > 0 and voice_dur > clip_actual_dur:
-                speed_factor = voice_dur / clip_actual_dur
-                print(f"🎞️ Pacing adjustment: slow-mo factor ({speed_factor:.2f}x)...")
-                filter_str = f"[0:v]setpts={speed_factor}*PTS[v];[1:a]volume=1.0[a]"
-                subprocess.run([
-                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                    "-filter_complex", filter_str,
-                    "-map", "[v]", "-map", "[a]",
-                    "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                    "-y", final_video_part
-                ], check=True)
-            else:
-                subprocess.run([
-                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                    "-c:v", "copy", "-c:a", "aac", "-shortest",
-                    "-y", final_video_part
-                ], check=True)
-
-            print(f"✅ Generated Chapter {i} Video: '{final_video_part}'")
-            generated_parts.append(final_video_part)
-
-            # Upload to Telegram
-            if bot_token and channel_id and os.path.exists(final_video_part):
-                caption = (
-                    f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b> [{chapter['start_str']} - {chapter['end_str']}]\n\n"
-                    f"{part_script}\n\n"
-                    f"⚡ <i>Produced via Apalod Cinemax Studio Engine</i>"
-                )
-                send_telegram_video(bot_token, channel_id, final_video_part, caption)
+            if produced and os.path.exists(produced):
+                generated_parts.append(produced)
+                if bot_token and channel_id:
+                    caption = (
+                        f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b> [{chapter['start_str']} - {chapter['end_str']}]\n\n"
+                        f"{part_script}\n\n"
+                        f"⚡ <i>Produced via Apalod Cinemax Studio Engine (Sinhala Voiceover)</i>"
+                    )
+                    send_telegram_video(bot_token, channel_id, produced, caption)
 
     else:
-        # PROCEDURAL RECAP FLOW
+        # PROCEDURAL RECAP FLOW (Chronological Beginning, Middle, Climax)
         num_parts = max(1, min(args.scenes, 5))
         for i in range(1, num_parts + 1):
             print(f"\n" + "-" * 50)
@@ -351,62 +424,29 @@ def main():
                 step = total_duration / (num_parts + 1)
                 start_sec = max(2, int(step * (i - 0.7)))
 
-            clip_dur = 30
-            raw_clip = f"output_scenes/raw_part_{i}.mp4"
-            voice_file = f"output_scenes/voice_part_{i}.mp3"
-            final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
-
-            print(f"✂️ Cutting video at {start_sec}s for {clip_dur}s...")
-            subprocess.run([
-                "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
-                "-t", str(clip_dur),
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-avoid_negative_ts", "make_zero",
-                "-y", raw_clip
-            ], check=True)
-
             part_script = generate_part_script(args.title, i, num_parts, gemini_key)
             print(f"📝 Part {i} Script (Sinhala):\n{part_script}")
+            final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
 
-            try:
-                subprocess.run([
-                    "edge-tts", "--voice", args.voice,
-                    "--text", part_script,
-                    "--write-media", voice_file
-                ], check=True)
-                voice_dur = get_media_duration(voice_file)
-            except Exception as e:
-                print(f"⚠️ Voice synth error: {e}")
-                voice_dur = 15.0
+            produced = produce_recap_scene(
+                movie_file=movie_file,
+                start_sec=start_sec,
+                script_text=part_script,
+                voice_name=args.voice,
+                part_num=i,
+                output_video=final_video_part,
+                temp_prefix="scene"
+            )
 
-            clip_actual_dur = get_media_duration(raw_clip)
-            if clip_actual_dur > 0 and voice_dur > clip_actual_dur:
-                speed_factor = voice_dur / clip_actual_dur
-                filter_str = f"[0:v]setpts={speed_factor}*PTS[v];[1:a]volume=1.0[a]"
-                subprocess.run([
-                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                    "-filter_complex", filter_str,
-                    "-map", "[v]", "-map", "[a]",
-                    "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                    "-y", final_video_part
-                ], check=True)
-            else:
-                subprocess.run([
-                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                    "-c:v", "copy", "-c:a", "aac", "-shortest",
-                    "-y", final_video_part
-                ], check=True)
-
-            print(f"✅ Generated Final Video Clip: '{final_video_part}'")
-            generated_parts.append(final_video_part)
-
-            if bot_token and channel_id and os.path.exists(final_video_part):
-                caption = (
-                    f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b>\n\n"
-                    f"{part_script}\n\n"
-                    f"⚡ <i>Produced via Apalod Cinemax Studio Engine</i>"
-                )
-                send_telegram_video(bot_token, channel_id, final_video_part, caption)
+            if produced and os.path.exists(produced):
+                generated_parts.append(produced)
+                if bot_token and channel_id:
+                    caption = (
+                        f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b>\n\n"
+                        f"{part_script}\n\n"
+                        f"⚡ <i>Produced via Apalod Cinemax Studio Engine (Sinhala Voiceover)</i>"
+                    )
+                    send_telegram_video(bot_token, channel_id, produced, caption)
 
     # Step 3: Stitch All Parts into Continuous Full Movie Recap Video
     if len(generated_parts) > 1:
@@ -429,7 +469,7 @@ def main():
             if os.path.exists(full_recap_video):
                 print(f"🎉 MASTER FULL RECAP COMPLETE: '{full_recap_video}' ({os.path.getsize(full_recap_video)/(1024*1024):.2f} MB)")
                 if bot_token and channel_id:
-                    full_caption = f"🎬 <b>{args.title}</b> - <b>Full Movie Recap (Inside Cinemax)</b>\n⚡ සම්පූර්ණ කතා විස්තරය එක දිගට!"
+                    full_caption = f"🎬 <b>{args.title}</b> - <b>Full Movie Recap (Inside Cinemax)</b>\n⚡ සම්පූර්ණ කතා විස්තරය (සිංහල හඬකැවීම්) එක දිගට!"
                     send_telegram_video(bot_token, channel_id, full_recap_video, full_caption)
         except Exception as e:
             print(f"⚠️ Concat error: {e}")
