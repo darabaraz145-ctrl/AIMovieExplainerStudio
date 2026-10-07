@@ -110,6 +110,40 @@ def download_and_extract_media(source_url, output_target="input_movie.mp4"):
     os.rename(temp_download, output_target)
     return output_target
 
+import re
+
+def time_to_seconds(t_str):
+    """Converts HH:MM:SS or MM:SS string to seconds."""
+    parts = [int(p) for p in t_str.strip().split(':')]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    elif len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return 0
+
+def parse_custom_script(text):
+    """Parses timestamped script in format [HH:MM:SS - HH:MM:SS] Sinhala narration."""
+    if not text or not text.strip():
+        return []
+    pattern = r'\[(\d{1,2}:\d{2}:\d{2})\s*-\s*(\d{1,2}:\d{2}:\d{2})\]\s*\n?([^\[]+)'
+    matches = re.findall(pattern, text)
+    chapters = []
+    for start_str, end_str, script in matches:
+        s_sec = time_to_seconds(start_str)
+        e_sec = time_to_seconds(end_str)
+        dur = max(5, e_sec - s_sec)
+        clean_narr = script.strip()
+        if clean_narr:
+            chapters.append({
+                'start_str': start_str,
+                'end_str': end_str,
+                'start_sec': s_sec,
+                'end_sec': e_sec,
+                'duration': dur,
+                'narration': clean_narr
+            })
+    return chapters
+
 def generate_part_script(movie_title, part_num, total_parts, gemini_key):
     """Generates an authentic Sinhala Movie Recap narration in Inside Cinemax YouTube channel style."""
     prompts = {
@@ -179,13 +213,21 @@ def main():
     parser.add_argument("--source", required=False, default="", help="Seedr Zip or Direct URL")
     parser.add_argument("--voice", default="si-LK-SameeraNeural", help="Voice Model (si-LK-SameeraNeural, si-LK-ThiliniNeural, en-US-ChristopherNeural)")
     parser.add_argument("--scenes", type=int, default=3, help="Number of scene video parts to produce (default 3)")
+    parser.add_argument("--custom-script", default="", help="Custom timestamped script text in [HH:MM:SS - HH:MM:SS] format")
     args = parser.parse_args()
+
+    custom_script_env = os.environ.get("CUSTOM_SCRIPT", "").strip()
+    raw_script_input = (args.custom_script or custom_script_env).strip()
+    custom_chapters = parse_custom_script(raw_script_input)
 
     print("=" * 65)
     print(f"🎬 APALOD CINEMAX STUDIO - VIDEO SCENE PRODUCTION ENGINE")
     print(f"📌 Movie: {args.title}")
     print(f"🎙️ Voice: {args.voice}")
-    print(f"🎞️ Target Scene Parts: {args.scenes}")
+    if custom_chapters:
+        print(f"📜 Custom Timestamped Chapters Detected: {len(custom_chapters)} scenes!")
+    else:
+        print(f"🎞️ Target Scene Parts: {args.scenes}")
     print("=" * 65)
 
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -213,93 +255,178 @@ def main():
     print(f"⏱️ Total Movie Duration: {total_duration:.2f}s ({total_duration/60:.1f} minutes)")
 
     os.makedirs("output_scenes", exist_ok=True)
+    generated_parts = []
 
-    # Step 2: Split and Produce Each Scene Video Part (Chronological Recap like Inside Cinemax)
-    num_parts = max(1, min(args.scenes, 5))
+    # Step 2: Produce Video Scene Parts
+    if custom_chapters:
+        # EXACT TIMESTAMPS FLOW (User-provided Inside Cinemax Script)
+        num_parts = len(custom_chapters)
+        for i, chapter in enumerate(custom_chapters, 1):
+            print(f"\n" + "-" * 50)
+            print(f"🎬 Processing Chapter {i}/{num_parts} [{chapter['start_str']} - {chapter['end_str']}]...")
+            start_sec = chapter['start_sec']
+            clip_dur = chapter['duration']
+            part_script = chapter['narration']
 
-    for i in range(1, num_parts + 1):
-        print(f"\n" + "-" * 50)
-        print(f"🎬 Processing Scene Video Part {i}/{num_parts}...")
-        
-        # Chronological timestamps:
-        # Part 1: Start at the very beginning of the movie (character introduction & opening scene)
-        # Part 2: Middle turning point / rising conflict
-        # Part 3: Climax & conclusion
-        if num_parts == 3:
-            if i == 1:
-                start_sec = 60 if total_duration > 180 else 2  # Opening scene after logos
-            elif i == 2:
-                start_sec = int(total_duration * 0.45) # Midpoint scene
+            raw_clip = f"output_scenes/raw_part_{i}.mp4"
+            voice_file = f"output_scenes/voice_part_{i}.mp3"
+            final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
+
+            # 1. Cut Video Clip from exact timestamps
+            print(f"✂️ Cutting video at {start_sec}s for {clip_dur}s...")
+            subprocess.run([
+                "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
+                "-t", str(clip_dur),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-avoid_negative_ts", "make_zero",
+                "-y", raw_clip
+            ], check=True)
+
+            # 2. Synthesize Neural Sinhala Voiceover
+            print(f"🎙️ Synthesizing Sinhala Voice ({args.voice})...")
+            try:
+                subprocess.run([
+                    "edge-tts", "--voice", args.voice,
+                    "--text", part_script,
+                    "--write-media", voice_file
+                ], check=True)
+                voice_dur = get_media_duration(voice_file)
+                print(f"⏱️ Voice Duration: {voice_dur:.2f}s | Video Duration: {clip_dur}s")
+            except Exception as e:
+                print(f"⚠️ Voice synth error: {e}")
+                voice_dur = float(clip_dur)
+
+            # 3. Synchronize & Merge Audio with Video Clip
+            clip_actual_dur = get_media_duration(raw_clip)
+            if clip_actual_dur > 0 and voice_dur > clip_actual_dur:
+                speed_factor = voice_dur / clip_actual_dur
+                print(f"🎞️ Pacing adjustment: slow-mo factor ({speed_factor:.2f}x)...")
+                filter_str = f"[0:v]setpts={speed_factor}*PTS[v];[1:a]volume=1.0[a]"
+                subprocess.run([
+                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
+                    "-filter_complex", filter_str,
+                    "-map", "[v]", "-map", "[a]",
+                    "-c:v", "libx264", "-c:a", "aac", "-shortest",
+                    "-y", final_video_part
+                ], check=True)
             else:
-                start_sec = max(int(total_duration * 0.80), int(total_duration - 400)) # Climax scene
-        else:
-            step = total_duration / (num_parts + 1)
-            start_sec = max(2, int(step * (i - 0.7)))
+                subprocess.run([
+                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
+                    "-c:v", "copy", "-c:a", "aac", "-shortest",
+                    "-y", final_video_part
+                ], check=True)
 
-        clip_dur = 30 # 30-second rich video scene window for recap
+            print(f"✅ Generated Chapter {i} Video: '{final_video_part}'")
+            generated_parts.append(final_video_part)
 
-        raw_clip = f"output_scenes/raw_part_{i}.mp4"
-        voice_file = f"output_scenes/voice_part_{i}.mp3"
-        final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
+            # Upload to Telegram
+            if bot_token and channel_id and os.path.exists(final_video_part):
+                caption = (
+                    f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b> [{chapter['start_str']} - {chapter['end_str']}]\n\n"
+                    f"{part_script}\n\n"
+                    f"⚡ <i>Produced via Apalod Cinemax Studio Engine</i>"
+                )
+                send_telegram_video(bot_token, channel_id, final_video_part, caption)
 
-        # 1. Cut Video Clip with FFmpeg
-        print(f"✂️ Cutting video at {start_sec}s for {clip_dur}s...")
-        subprocess.run([
-            "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
-            "-t", str(clip_dur),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-avoid_negative_ts", "make_zero",
-            "-y", raw_clip
-        ], check=True)
+    else:
+        # PROCEDURAL RECAP FLOW
+        num_parts = max(1, min(args.scenes, 5))
+        for i in range(1, num_parts + 1):
+            print(f"\n" + "-" * 50)
+            print(f"🎬 Processing Scene Video Part {i}/{num_parts}...")
+            if num_parts == 3:
+                if i == 1:
+                    start_sec = 60 if total_duration > 180 else 2
+                elif i == 2:
+                    start_sec = int(total_duration * 0.45)
+                else:
+                    start_sec = max(int(total_duration * 0.80), int(total_duration - 400))
+            else:
+                step = total_duration / (num_parts + 1)
+                start_sec = max(2, int(step * (i - 0.7)))
 
-        # 2. Generate Story Script for this Part
-        part_script = generate_part_script(args.title, i, num_parts, gemini_key)
-        print(f"📝 Part {i} Script (Sinhala):\n{part_script}")
+            clip_dur = 30
+            raw_clip = f"output_scenes/raw_part_{i}.mp4"
+            voice_file = f"output_scenes/voice_part_{i}.mp3"
+            final_video_part = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Part_{i}.mp4"
 
-        # 3. Synthesize Neural Sinhala Voiceover
-        print(f"🎙️ Synthesizing Voice ({args.voice})...")
+            print(f"✂️ Cutting video at {start_sec}s for {clip_dur}s...")
+            subprocess.run([
+                "ffmpeg", "-ss", str(start_sec), "-i", movie_file,
+                "-t", str(clip_dur),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-avoid_negative_ts", "make_zero",
+                "-y", raw_clip
+            ], check=True)
+
+            part_script = generate_part_script(args.title, i, num_parts, gemini_key)
+            print(f"📝 Part {i} Script (Sinhala):\n{part_script}")
+
+            try:
+                subprocess.run([
+                    "edge-tts", "--voice", args.voice,
+                    "--text", part_script,
+                    "--write-media", voice_file
+                ], check=True)
+                voice_dur = get_media_duration(voice_file)
+            except Exception as e:
+                print(f"⚠️ Voice synth error: {e}")
+                voice_dur = 15.0
+
+            clip_actual_dur = get_media_duration(raw_clip)
+            if clip_actual_dur > 0 and voice_dur > clip_actual_dur:
+                speed_factor = voice_dur / clip_actual_dur
+                filter_str = f"[0:v]setpts={speed_factor}*PTS[v];[1:a]volume=1.0[a]"
+                subprocess.run([
+                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
+                    "-filter_complex", filter_str,
+                    "-map", "[v]", "-map", "[a]",
+                    "-c:v", "libx264", "-c:a", "aac", "-shortest",
+                    "-y", final_video_part
+                ], check=True)
+            else:
+                subprocess.run([
+                    "ffmpeg", "-i", raw_clip, "-i", voice_file,
+                    "-c:v", "copy", "-c:a", "aac", "-shortest",
+                    "-y", final_video_part
+                ], check=True)
+
+            print(f"✅ Generated Final Video Clip: '{final_video_part}'")
+            generated_parts.append(final_video_part)
+
+            if bot_token and channel_id and os.path.exists(final_video_part):
+                caption = (
+                    f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b>\n\n"
+                    f"{part_script}\n\n"
+                    f"⚡ <i>Produced via Apalod Cinemax Studio Engine</i>"
+                )
+                send_telegram_video(bot_token, channel_id, final_video_part, caption)
+
+    # Step 3: Stitch All Parts into Continuous Full Movie Recap Video
+    if len(generated_parts) > 1:
+        print("\n" + "=" * 50)
+        print("🎞️ Assembling Continuous Full Movie Recap Video...")
+        concat_file = "output_scenes/concat_list.txt"
+        with open(concat_file, "w") as f:
+            for p in generated_parts:
+                f.write(f"file '{os.path.basename(p)}'\n")
+
+        full_recap_video = f"output_scenes/Apalod_Cinemax_{args.title.replace(' ', '_')}_Full_Recap.mp4"
         try:
             subprocess.run([
-                "edge-tts", "--voice", args.voice,
-                "--text", part_script,
-                "--write-media", voice_file
-            ], check=True)
-            voice_dur = get_media_duration(voice_file)
-            print(f"⏱️ Voice Duration: {voice_dur:.2f}s")
+                "ffmpeg", "-f", "concat", "-safe", "0",
+                "-i", concat_file,
+                "-c", "copy",
+                "-y", full_recap_video
+            ], cwd="output_scenes", check=True)
+
+            if os.path.exists(full_recap_video):
+                print(f"🎉 MASTER FULL RECAP COMPLETE: '{full_recap_video}' ({os.path.getsize(full_recap_video)/(1024*1024):.2f} MB)")
+                if bot_token and channel_id:
+                    full_caption = f"🎬 <b>{args.title}</b> - <b>Full Movie Recap (Inside Cinemax)</b>\n⚡ සම්පූර්ණ කතා විස්තරය එක දිගට!"
+                    send_telegram_video(bot_token, channel_id, full_recap_video, full_caption)
         except Exception as e:
-            print(f"⚠️ Voice synth error: {e}")
-            voice_dur = 15.0
-
-        # 4. Synchronize & Merge Audio with Video Clip
-        clip_actual_dur = get_media_duration(raw_clip)
-        if clip_actual_dur > 0 and voice_dur > clip_actual_dur:
-            speed_factor = voice_dur / clip_actual_dur
-            print(f"🎞️ Applying Subtle Slow-Mo Video Pacing ({speed_factor:.2f}x)...")
-            filter_str = f"[0:v]setpts={speed_factor}*PTS[v];[1:a]volume=1.0[a]"
-            subprocess.run([
-                "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                "-filter_complex", filter_str,
-                "-map", "[v]", "-map", "[a]",
-                "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                "-y", final_video_part
-            ], check=True)
-        else:
-            subprocess.run([
-                "ffmpeg", "-i", raw_clip, "-i", voice_file,
-                "-c:v", "copy", "-c:a", "aac", "-shortest",
-                "-y", final_video_part
-            ], check=True)
-
-        print(f"✅ Generated Final Video Clip: '{final_video_part}' ({os.path.getsize(final_video_part)/(1024*1024):.2f} MB)")
-
-        # 5. Upload Real Streamable Video Clip to Telegram
-        if bot_token and channel_id and os.path.exists(final_video_part):
-            caption = (
-                f"🎬 <b>{args.title}</b> - <b>Part {i}/{num_parts}</b>\n\n"
-                f"{part_script}\n\n"
-                f"⚡ <i>Produced via Apalod Cinemax Studio Engine</i>"
-            )
-            send_telegram_video(bot_token, channel_id, final_video_part, caption)
+            print(f"⚠️ Concat error: {e}")
 
     print("\n" + "=" * 65)
     print("🎉 ALL VIDEO SCENE PARTS SUCCESSFULLY PRODUCED & DISPATCHED!")
