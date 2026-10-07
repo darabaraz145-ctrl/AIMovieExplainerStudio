@@ -111,29 +111,42 @@ def download_and_extract_media(source_url, output_target="input_movie.mp4"):
     return output_target
 
 def generate_part_script(movie_title, part_num, total_parts, gemini_key):
-    """Generates an engaging Hollywood Movie Recap narration in cinematic English."""
+    """Generates an authentic Sinhala Movie Recap narration in Inside Cinemax YouTube channel style."""
     prompts = {
-        1: f"The movie '{movie_title}' begins by introducing our protagonist in the midst of an unexpected crisis. The atmosphere is tense, and every clue points to a dangerous conspiracy that cannot be ignored.",
-        2: f"As the story progresses into chapter two, the stakes escalate dramatically. Facing relentless pursuit, unexpected secrets begin to unravel, forcing critical choices.",
-        3: f"At the turning point of '{movie_title}', the tension reaches its boiling point. Suspicion grows between the characters as a shocking revelation alters the course of the entire mission.",
-        4: f"With time rapidly running out, danger closes in from all sides. A desperate gambit is made, pushing the protagonist to the ultimate edge of survival.",
-        5: f"In the gripping climax of '{movie_title}', the final pieces of the puzzle fall into place, culminating in a jaw-dropping finale that leaves audiences breathless."
+        1: f"කතාව ආරම්භයේදීම අපිට දකින්න ලැබෙන්නේ {movie_title} චිත්‍රපටයේ ප්‍රධාන චරිතය අනපේක්ෂිත සිදුවීමකට මුහුණ දෙන ආකාරයයි. ඔහුගේ සාමාන්‍ය ජීවිතය එකවරම වෙනස් වෙමින් අභිරහස් තත්ත්වයක් නිර්මාණය වන අතර, කිසිවෙකු නොසිතූ බරපතල අභියෝගයකට ඔහුට මුහුණ දීමට සිදුවේ.",
+        2: f"කතාව ඉදිරියට යද්දී තත්ත්වය තවත් දරුණු අතට හැරෙනවා. ප්‍රධාන චරිතය තමන් වටා ඇති අනතුර තේරුම් ගන්නා විට, ඔහුට එරෙහිව ක්‍රියාත්මක වන රහස්‍ය සැලසුම් එකින් එක එළිදරව් වීමට පටන් ගන්නා අතර සෑම මොහොතක්ම දැඩි කුතුහලයකින් පිරී යයි.",
+        3: f"{movie_title} චිත්‍රපටයේ උච්චතම අවස්ථාවේදී සියලු රහස් විසඳෙන මොහොත පැමිණෙනවා. අවසන් තීරණාත්මක සටන සහ ප්‍රධාන චරිතයේ ඉරණම තීරණය වන ආකාරය ප්‍රේක්ෂකයා කිසිසේත් බලාපොරොත්තු නොවූ පුදුම සහගත අවසානයකින් නිමාවට පත් වෙනවා.",
+        4: f"අවදානම තවත් වැඩි වෙමින් ප්‍රධාන චරිතය තීරණාත්මක මංසන්ධියකට පැමිණෙනවා. සිය මිතුරන් සහ සතුරන් වෙන්කර හඳුනාගත නොහැකි මේ මොහොතේ සෑම තීරණයක්ම ජීවිතයත් මරණයත් අතර සටනක් බවට පත්වෙයි.",
+        5: f"අවසාන වශයෙන් සියලු අභිරහස් වල සුලමුල හෙළිදරව් වන අතර, චිත්‍රපටය අවසන් වන්නේ ප්‍රේක්ෂකයාගේ මනස කුල්මත් කරවන විස්මිත සහ නොසිතූ අවසානයකිනි."
     }
 
-    # If Gemini API Key is present, query Gemini for dynamic English movie recap
     if gemini_key:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-            p_text = f"You are the voice of a popular YouTube Movie Recap channel (like Movie Recaps or Mystery Recaps). Write a thrilling 45-word chronological recap for Part {part_num} of {total_parts} of the movie '{movie_title}'. Focus on the character tension, plot development, and mysterious stakes. Return ONLY the English narration text without quotation marks or bullet points."
-            body = json.dumps({"contents": [{"parts": [{"text": p_text}]}]}).encode()
-            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
+            part_guide = (
+                "1 වන කොටස: කතාවේ ආරම්භය! චිත්‍රපටය ආරම්භ වන අවස්ථාව, ප්‍රධාන චරිතය හඳුන්වා දීම, ඔහු හෝ ඇය සිටින පරිසරය සහ කතාව පටන් ගන්නා මුල් සිදුවීම පැහැදිලි කරන්න. (උදා: 'කතාව ආරම්භයේදීම අපිට දකින්න ලැබෙන්නේ...')"
+                if part_num == 1 else
+                ("2 වන කොටස: කතාවේ මැද අවස්ථාව! ප්‍රධාන චරිතයට එල්ල වන දැඩි අනතුර, කුතුහලය සහ කතාවේ හැරවුම් ලක්ෂ්‍යය විස්තර කරන්න."
+                if part_num == 2 else
+                "3 වන කොටස: කතාවේ උච්චතම අවස්ථාව සහ අවසානය! සියලු රහස් හෙළිදරව් වීම සහ විස්මිත අවසානය පැහැදිලි කරන්න.")
+            )
+            p_text = f"""ඔබ 'Inside Cinemax' YouTube චැනලයේ නිල සිංහල කථිකයායි.
+'{movie_title}' චිත්‍රපටයේ {part_num}/{total_parts} වන කොටස සඳහා අතිශය ආකර්ෂණීය සිංහල Movie Recap Narration එකක් ලියන්න.
+
+විශේෂ උපදෙස්:
+- {part_guide}
+- වචන 40-55 අතර විය යුතුය.
+- ස්වභාවික, ආකර්ෂණීය සිංහල කථන ශෛලියෙන් ලියන්න.
+- ඉංග්‍රීසි වචන, Tags හෝ මාතෘකා නැතිව Narration Text එක පමණක් සෘජුවම ලබා දෙන්න."""
+            body = json.dumps({"contents": [{"parts": [{"text": p_text}]}]}).encode('utf-8')
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json; charset=utf-8"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
                 cand = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text")
                 if cand and len(cand.strip()) > 20:
                     return cand.strip()
         except Exception as e:
-            print(f"⚠️ Gemini request error: {e}, using procedural cinematic script.")
+            print(f"⚠️ Gemini request error: {e}, using default Inside Cinemax Sinhala script.")
 
     return prompts.get(part_num, prompts[1])
 
@@ -164,7 +177,7 @@ def main():
     parser = argparse.ArgumentParser(description="Apalod Cinemax Scene Splitter & Video Pipeline")
     parser.add_argument("--title", required=True, help="Movie Title")
     parser.add_argument("--source", required=False, default="", help="Seedr Zip or Direct URL")
-    parser.add_argument("--voice", default="en-US-ChristopherNeural", help="Voice Model (en-US-ChristopherNeural, en-US-GuyNeural)")
+    parser.add_argument("--voice", default="si-LK-SameeraNeural", help="Voice Model (si-LK-SameeraNeural, si-LK-ThiliniNeural, en-US-ChristopherNeural)")
     parser.add_argument("--scenes", type=int, default=3, help="Number of scene video parts to produce (default 3)")
     args = parser.parse_args()
 
@@ -175,9 +188,10 @@ def main():
     print(f"🎞️ Target Scene Parts: {args.scenes}")
     print("=" * 65)
 
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    channel_id = os.environ.get("TELEGRAM_CHANNEL_ID") or "-1004294803559"
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    channel_id = os.environ.get("TELEGRAM_CHANNEL_ID", "-1004294803559").strip()
+    print(f"📡 Telegram Channel: {channel_id} | Bot configured: {bool(bot_token)} | Gemini key: {bool(gemini_key)}")
 
     # Step 1: Ingestion (Download / Unpack)
     movie_file = "input_movie.mp4"
@@ -200,17 +214,29 @@ def main():
 
     os.makedirs("output_scenes", exist_ok=True)
 
-    # Step 2: Split and Produce Each Scene Video Part
+    # Step 2: Split and Produce Each Scene Video Part (Chronological Recap like Inside Cinemax)
     num_parts = max(1, min(args.scenes, 5))
-    interval = total_duration / (num_parts + 1)
 
     for i in range(1, num_parts + 1):
         print(f"\n" + "-" * 50)
         print(f"🎬 Processing Scene Video Part {i}/{num_parts}...")
         
-        # Calculate timestamp for part i (e.g. 15% in, 45% in, 75% in)
-        start_sec = max(5, int(interval * i - 15))
-        clip_dur = 25 # 25-second video scene window
+        # Chronological timestamps:
+        # Part 1: Start at the very beginning of the movie (character introduction & opening scene)
+        # Part 2: Middle turning point / rising conflict
+        # Part 3: Climax & conclusion
+        if num_parts == 3:
+            if i == 1:
+                start_sec = 60 if total_duration > 180 else 2  # Opening scene after logos
+            elif i == 2:
+                start_sec = int(total_duration * 0.45) # Midpoint scene
+            else:
+                start_sec = max(int(total_duration * 0.80), int(total_duration - 400)) # Climax scene
+        else:
+            step = total_duration / (num_parts + 1)
+            start_sec = max(2, int(step * (i - 0.7)))
+
+        clip_dur = 30 # 30-second rich video scene window for recap
 
         raw_clip = f"output_scenes/raw_part_{i}.mp4"
         voice_file = f"output_scenes/voice_part_{i}.mp3"
