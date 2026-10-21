@@ -36,6 +36,8 @@ on:
     types: [transcribe_sinhala_audio, generate_sinhala_srt]
 
   push:
+    branches:
+      - main
     paths:
       - 'audio/**'
       - 'audio/*'
