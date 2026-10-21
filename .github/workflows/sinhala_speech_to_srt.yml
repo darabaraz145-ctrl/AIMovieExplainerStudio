@@ -1,0 +1,114 @@
+name: 🎙️ Sinhala Speech to SRT Subtitle Generator
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio_url:
+        description: 'Direct URL to Audio (Seedr, Telegram, Google Drive, or raw MP3/WAV link)'
+        required: false
+        default: ''
+      audio_filename:
+        description: 'Audio file path in repo (leave empty to auto-detect latest file in audio/)'
+        required: false
+        default: ''
+      model_size:
+        description: 'OpenAI Whisper Model Size (small is fast & highly accurate for Sinhala)'
+        required: false
+        default: 'small'
+        type: choice
+        options:
+          - tiny
+          - base
+          - small
+          - medium
+          - large-v3
+      engine:
+        description: 'Transcription Engine'
+        required: false
+        default: 'whisper'
+        type: choice
+        options:
+          - whisper
+          - auto
+          - gemini
+
+  repository_dispatch:
+    types: [transcribe_sinhala_audio, generate_sinhala_srt]
+
+  push:
+    paths:
+      - 'audio/**'
+      - 'audio/*'
+
+permissions:
+  contents: write
+
+jobs:
+  transcribe_sinhala_audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 🛠️ Install FFmpeg & AI Transcription Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg curl aria2
+          python -m pip install --upgrade pip
+          pip install openai-whisper ffmpeg-python requests
+
+      - name: 🎙️ Transcribe Sinhala Speech to SRT Subtitles
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AUDIO_URL: ${{ github.event.inputs.audio_url || github.event.client_payload.audioUrl || '' }}
+          AUDIO_PATH: ${{ github.event.inputs.audio_filename || github.event.client_payload.audioPath || '' }}
+          MODEL_SIZE: ${{ github.event.inputs.model_size || github.event.client_payload.modelSize || 'small' }}
+          ENGINE: ${{ github.event.inputs.engine || github.event.client_payload.engine || 'whisper' }}
+        run: |
+          mkdir -p audio subtitles
+
+          ARGS=""
+          if [ -n "$AUDIO_URL" ]; then
+            ARGS="$ARGS --url $AUDIO_URL"
+          fi
+          if [ -n "$AUDIO_PATH" ]; then
+            ARGS="$ARGS --audio $AUDIO_PATH"
+          fi
+          ARGS="$ARGS --model $MODEL_SIZE --engine $ENGINE --output_dir subtitles --lang si"
+
+          echo "🚀 Running Sinhala Speech to SRT Transcription..."
+          python transcribe_to_srt.py $ARGS
+
+      - name: 💾 Commit & Push Subtitle Files to Repository
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add subtitles/ audio/ || true
+          if git status --porcelain | grep -q "subtitles/"; then
+            git commit -m "Auto-generated Sinhala Subtitles (.srt) [skip ci]"
+            git push origin main || true
+            echo "✅ Successfully committed new .srt files to 'subtitles/' folder in repo!"
+          else
+            echo "ℹ️ No subtitle changes to commit."
+          fi
+
+      - name: 📤 Upload SRT Subtitles as Downloadable Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sinhala-subtitles-srt
+          path: |
+            subtitles/*.srt
+            subtitles/*.vtt
+            subtitles/*.txt
+          retention-days: 30
